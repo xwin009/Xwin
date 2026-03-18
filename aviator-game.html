@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Aviator</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<script src="game-control.js"></script>
+<style>
+body{margin:0;font-family:Arial;background:#0b0b0b;color:#fff}
+.header{display:flex;justify-content:space-between;align-items:center;padding:14px;background:#111}
+.logo{font-size:26px;font-weight:bold;color:#ff1744}
+.balance{font-size:18px;color:#00e676}
+.history{display:flex;gap:10px;padding:10px;overflow-x:auto;background:#0f0f0f}
+.history span{font-size:14px}
+.low{color:#64b5f6}
+.mid{color:#00e676}
+.high{color:#e040fb}
+.game{height:40vh;background:radial-gradient(circle at bottom,#1a1a1a,#000);display:flex;align-items:center;justify-content:center}
+.multiplier{text-align:center;font-size:64px;font-weight:bold}
+.crashed{color:#ff5252}
+.status{text-align:center;padding:8px;color:#aaa;font-size:16px}
+.controls{padding:12px;display:flex;flex-direction:column;gap:12px}
+.betbox{background:#151515;border-radius:14px;padding:12px}
+.row{display:flex;gap:8px;margin-bottom:8px}
+input{flex:1;padding:10px;border:none;border-radius:8px;font-size:16px;text-align:center}
+button{flex:1;padding:10px;border:none;border-radius:8px;font-weight:bold;font-size:16px}
+.gray{background:#333;color:#fff}
+.green{background:#2ecc71;color:#000}
+.locked{opacity:.5;pointer-events:none}
+.popup-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:999}
+.popup{background:#1c1c1c;padding:20px 26px;border-radius:14px;font-size:20px;font-weight:bold}
+.win{color:#2ecc71}
+.loss{color:#ff5252}
+.betp{color:#64b5f6}
+</style>
+</head>
+
+<body>
+
+<div class="header">
+  <div class="logo">Aviator</div>
+  <div class="balance">₹ <span id="wallet">3000</span></div>
+</div>
+
+<div class="history" id="history"></div>
+
+<div class="game">
+  <div class="multiplier" id="multi">WAITING</div>
+</div>
+
+<div class="status" id="status"></div>
+
+<div class="controls">
+
+  <div class="betbox" id="box1">
+    <div class="row">
+      <button class="gray" onclick="chg(1,-1)">-</button>
+      <input id="amt1" value="10">
+      <button class="gray" onclick="chg(1,1)">+</button>
+    </div>
+    <div class="row">
+      <button class="gray" onclick="setAmt(1,1)">1</button>
+      <button class="gray" onclick="setAmt(1,2)">2</button>
+      <button class="gray" onclick="setAmt(1,5)">5</button>
+      <button class="gray" onclick="setAmt(1,10)">10</button>
+    </div>
+    <button class="green" id="btn1" onclick="bet(1)">BET</button>
+  </div>
+
+  <div class="betbox" id="box2">
+    <div class="row">
+      <button class="gray" onclick="chg(2,-1)">-</button>
+      <input id="amt2" value="1">
+      <button class="gray" onclick="chg(2,1)">+</button>
+    </div>
+    <div class="row">
+      <button class="gray" onclick="setAmt(2,1)">1</button>
+      <button class="gray" onclick="setAmt(2,2)">2</button>
+      <button class="gray" onclick="setAmt(2,5)">5</button>
+      <button class="gray" onclick="setAmt(2,10)">10</button>
+    </div>
+    <button class="green" id="btn2" onclick="bet(2)">BET</button>
+  </div>
+
+</div>
+
+<div class="popup-bg" id="popupBg">
+  <div class="popup" id="popup"></div>
+</div>
+
+<!-- ===== TERI ORIGINAL SCRIPT (AS IS) ===== -->
+<script>
+/* ===== ORIGINAL GAME SCRIPT (UNCHANGED) ===== */
+let wallet=3000;
+let state="BET";
+let multi=1;
+let crash=0;
+let active=[false,false];
+let betAmt=[0,0];
+let history=[];
+
+const BET_TIME=25;
+const LOCK_TIME=5;
+
+let roundStart = Date.now();
+
+const wEl=document.getElementById("wallet");
+const mEl=document.getElementById("multi");
+const sEl=document.getElementById("status");
+const hEl=document.getElementById("history");
+const popupBg=document.getElementById("popupBg");
+const popup=document.getElementById("popup");
+
+function showPopup(txt,cls){
+  popup.className="popup "+cls;
+  popup.innerText=txt;
+  popupBg.style.display="flex";
+  setTimeout(()=>popupBg.style.display="none",1500);
+}
+
+function randCrash(){
+  let r=Math.random();
+  if(r<0.6) return +(1+Math.random()*1.5).toFixed(2);
+  if(r<0.85) return +(2+Math.random()*3).toFixed(2);
+  return +(5+Math.random()*15).toFixed(2);
+}
+
+function renderHistory(){
+  hEl.innerHTML="";
+  history.forEach(x=>{
+    let s=document.createElement("span");
+    s.textContent=x+"x";
+    s.className=x<2?"low":x<10?"mid":"high";
+    hEl.appendChild(s);
+  });
+}
+
+function loop(){
+  let elapsed=Math.floor((Date.now()-roundStart)/1000);
+
+  if(elapsed < BET_TIME){
+    state="BET";
+    sEl.innerText=`Place your bets (${BET_TIME-elapsed}s)`;
+    mEl.innerText="WAITING";
+  }
+  else if(elapsed < BET_TIME+LOCK_TIME){
+    state="LOCK";
+    sEl.innerText=`Bet locked (${BET_TIME+LOCK_TIME-elapsed}s)`;
+  }
+  else{
+    if(state!=="FLY"){
+      state="FLY";
+      multi=1;
+      crash=randCrash();
+      sEl.innerText="Flying…";
+    }
+    if(active[0]) document.getElementById("btn1").innerText="CASH OUT";
+    if(active[1]) document.getElementById("btn2").innerText="CASH OUT";
+    multi += 0.02 + multi*0.004;
+    multi=+multi.toFixed(2);
+    mEl.innerText=multi+"x";
+
+    if(multi>=crash){
+      state="CRASH";
+      mEl.innerText="CRASHED @ "+crash+"x";
+      history.unshift(crash);
+      history=history.slice(0,10);
+      renderHistory();
+      active=[false,false];
+      document.getElementById("btn1").innerText="BET";
+      document.getElementById("btn2").innerText="BET";
+      roundStart=Date.now()+2000;
+    }
+  }
+}
+
+setInterval(loop,100);
+
+function bet(n){
+  let i=n-1;
+  let amt=+document.getElementById("amt"+n).value;
+  if(state==="BET"){
+    if(wallet<amt) return showPopup("Low Balance","loss");
+    wallet-=amt;
+    wEl.innerText=wallet;
+    active[i]=true;
+    betAmt[i]=amt;
+    document.getElementById("btn"+n).innerText="CASH OUT";
+    showPopup("Bet Placed ₹"+amt,"betp");
+  }
+ else if(state==="FLY" && active[i]){
+  active[i]=false;
+
+  let win = Math.floor(amt*multi);
+
+  win = addWinAmount(win);   // ⭐ daily limit apply
+
+  wallet += win;
+  wEl.innerText = wallet;
+
+  document.getElementById("btn"+n).innerText="BET";
+  showPopup("Cashed Out @ "+multi+"x","win");
+ } 
+
+function chg(n,v){
+  let i=document.getElementById("amt"+n);
+  i.value=Math.max(1,+i.value+v);
+}
+function setAmt(n,v){
+  document.getElementById("amt"+n).value=v;
+}
+
+renderHistory();
+</script>
+<!-- ================= HARD REFRESH ROUND FIX (FINAL) ================= -->
+<script>
+(function(){
+  const KEY = "AVIATOR_PERSIST_STATE";
+
+  // LOAD
+  const saved = localStorage.getItem(KEY);
+  if(saved){
+    try{
+      const d = JSON.parse(saved);
+      if(d.roundStart) roundStart = d.roundStart;
+      if(d.state) state = d.state;
+      if(d.multi) multi = d.multi;
+      if(d.crash) crash = d.crash;
+      if(d.active) active = d.active;
+      if(d.betAmt) betAmt = d.betAmt;
+      if(d.history){
+        history = d.history;
+        renderHistory();
+      }
+    }catch(e){}
+  }
+
+  // SAVE CONTINUOUSLY
+  setInterval(()=>{
+    localStorage.setItem(KEY, JSON.stringify({
+      roundStart,
+      state,
+      multi,
+      crash,
+      active,
+      betAmt,
+      history
+    }));
+  }, 500);
+})();
+</script>
+<!-- ================= FIREBASE WALLET SYNC (ONLY ADDITION) ================= -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getFirestore, collection, query, where, getDocs, doc, updateDoc } 
+from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+const app = initializeApp({
+  apiKey:"AIzaSyBx3J9aGn_98rTPgurMMKw_GR3puIMj4Ms",
+  authDomain:"colourcash-ea60e.firebaseapp.com",
+  projectId:"colourcash-ea60e"
+});
+const db = getFirestore(app);
+
+const email = localStorage.getItem("userEmail");
+let uid="";
+let lastWallet = wallet;
+
+/* LOAD WALLET FROM FIREBASE */
+async function loadWallet(){
+  if(!email) return;
+  const q=query(collection(db,"users"),where("email","==",email));
+  const snap=await getDocs(q);
+  snap.forEach(d=>{
+    uid=d.id;
+    wallet = d.data().balance || wallet;
+    document.getElementById("wallet").innerText = wallet;
+  });
+}
+loadWallet();
+
+/* AUTO SYNC WALLET (NO GAME TOUCH) */
+setInterval(async ()=>{
+  if(!uid) return;
+  if(wallet !== lastWallet){
+    lastWallet = wallet;
+    await updateDoc(doc(db,"users",uid),{ balance: wallet });
+  }
+},600);
+</script>
+
+</body>
+</html>
